@@ -6,7 +6,8 @@ Web Dashboard (Flask) สำหรับบอทเทรด Bybit
 - ปุ่ม Start / Stop บอท และปุ่มทดสอบการเชื่อมต่อ
 - ตาราง log เทรดสด ๆ + กราฟกำไรสะสม + สรุปรายวัน
 
-รัน:  python app.py   แล้วเปิดเบราว์เซอร์ http://127.0.0.1:5000
+รัน:  python app.py   แล้วเปิดเบราว์เซอร์ http://127.0.0.1:8000
+รันบน VPS: HOST=0.0.0.0 python app.py
 """
 
 import os
@@ -194,6 +195,10 @@ if __name__ == "__main__":
     import threading
     import webbrowser
 
+    # HOST=0.0.0.0 เพื่อให้เข้าจากภายนอกได้ (เช่นรันบน VPS) ค่าเริ่มต้นคือเครื่องตัวเอง
+    host = os.getenv("HOST", "127.0.0.1")
+    local_only = host in ("127.0.0.1", "localhost", "::1")
+
     def find_free_port(preferred):
         """ลองพอร์ตที่ตั้งไว้ก่อน ถ้าไม่ว่างไล่หาตัวถัดไป สุดท้ายให้ OS เลือกให้"""
         candidates = [preferred] + [preferred + i for i in range(1, 21)]
@@ -201,13 +206,13 @@ if __name__ == "__main__":
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 try:
-                    s.bind(("127.0.0.1", p))
+                    s.bind((host, p))
                     return p
                 except OSError:
                     continue
         # หาไม่เจอในลิสต์ -> ให้ระบบเลือกพอร์ตว่างเอง
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 0))
+            s.bind((host, 0))
             return s.getsockname()[1]
 
     # พอร์ต 5000 บน macOS ชนกับ AirPlay Receiver -> เริ่มที่ 8000 (ปรับได้ด้วย env PORT)
@@ -218,7 +223,15 @@ if __name__ == "__main__":
     trade_logger.init_db()
     if port != preferred:
         print(f"(พอร์ต {preferred} ไม่ว่าง -> ใช้ {port} แทน)")
-    print(f"เปิดเบราว์เซอร์ที่ {url}")
-    # เปิดเบราว์เซอร์ให้อัตโนมัติหลังเซิร์ฟเวอร์เริ่ม
-    threading.Timer(1.2, lambda: webbrowser.open(url)).start()
-    app.run(host="127.0.0.1", port=port, debug=False)
+
+    if local_only:
+        print(f"เปิดเบราว์เซอร์ที่ {url}")
+        # เปิดเบราว์เซอร์ให้อัตโนมัติหลังเซิร์ฟเวอร์เริ่ม (เฉพาะตอนรันบนเครื่องตัวเอง)
+        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+    else:
+        print(f"กำลังฟังที่ {host}:{port} -> เปิดจากภายนอกที่ http://<IP เซิร์ฟเวอร์>:{port}")
+        if DASH_PASS == "IIceza0251ZA**##":
+            print("!! เตือน: ยังใช้รหัส Dashboard ค่าเริ่มต้นอยู่ "
+                  "ตั้ง DASH_PASS ใน .env ก่อนเปิดให้เข้าจากภายนอก")
+
+    app.run(host=host, port=port, debug=False)

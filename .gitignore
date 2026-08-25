@@ -7,3 +7,5 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+bot-trade.pid
+bot-trade.log
