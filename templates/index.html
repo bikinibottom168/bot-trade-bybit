@@ -1,0 +1,274 @@
+{% macro render_group(fields) %}
+  {% for f in fields %}
+    {% if f.type == 'bool' %}
+      <label class="f"><span class="lbl">{{ f.label }}</span>
+        <span class="switch"><input type="checkbox" name="{{ f.key }}" {% if f.value %}checked{% endif %}> เปิด</span>
+      </label>
+    {% elif f.type == 'secret' %}
+      <label class="f"><span class="lbl">{{ f.label }}</span>
+        <input type="password" name="{{ f.key }}" placeholder="{% if f.value %}•••••• (มีค่าอยู่แล้ว เว้นว่างเพื่อคงเดิม){% else %}ยังไม่ได้ตั้ง{% endif %}">
+      </label>
+    {% else %}
+      <label class="f"><span class="lbl">{{ f.label }}</span>
+        <input type="text" name="{{ f.key }}" value="{{ f.value }}">
+      </label>
+    {% endif %}
+  {% endfor %}
+{% endmacro %}
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bybit Trading Bot</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171d2e; --panel2:#1e2740; --line:#2a3350;
+    --text:#e6ebf5; --muted:#8a94ad; --accent:#4f8cff;
+    --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans Thai",sans-serif;
+       background:var(--bg);color:var(--text);font-size:14px}
+  header{display:flex;align-items:center;justify-content:space-between;
+         padding:14px 22px;background:var(--panel);border-bottom:1px solid var(--line)}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;background:var(--red)}
+  .dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px}
+  .tabs{display:flex;gap:6px;margin-bottom:18px}
+  .tab{padding:9px 18px;background:var(--panel);border:1px solid var(--line);border-radius:9px;
+       cursor:pointer;color:var(--muted)}
+  .tab.active{background:var(--panel2);color:var(--text);border-color:var(--accent)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .stat .k{color:var(--muted);font-size:12px;margin-bottom:6px}
+  .stat .v{font-size:22px;font-weight:700}
+  .green{color:var(--green)} .red{color:var(--red)} .amber{color:var(--amber)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+  th{color:var(--muted);font-weight:500;position:sticky;top:0;background:var(--panel)}
+  .tblwrap{max-height:420px;overflow:auto}
+  .btn{padding:10px 18px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);
+       color:var(--text);cursor:pointer;font-size:14px}
+  .btn.primary{background:var(--accent);border-color:var(--accent)}
+  .btn.green{background:var(--green);border-color:var(--green);color:#04210f}
+  .btn.red{background:var(--red);border-color:var(--red);color:#2a0606}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  label.f{display:block;margin-bottom:12px}
+  label.f .lbl{display:block;color:var(--muted);font-size:12px;margin-bottom:5px}
+  input[type=text],input[type=password]{width:100%;padding:9px 11px;border-radius:8px;
+       border:1px solid var(--line);background:var(--bg);color:var(--text)}
+  .switch{display:flex;align-items:center;gap:9px}
+  .formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}
+  h3{margin:4px 0 14px;font-size:14px;color:var(--accent)}
+  .hint{color:var(--muted);font-size:12px;margin-top:4px}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--panel2);border:1px solid var(--accent);
+         padding:12px 16px;border-radius:9px;max-width:360px;display:none}
+  .warn{background:#2a1e0a;border:1px solid var(--amber);color:#f5d59b;padding:10px 14px;
+        border-radius:9px;font-size:12.5px;margin-bottom:16px}
+  #logbox{background:#0b0f18;border:1px solid var(--line);border-radius:9px;padding:12px;
+          height:180px;overflow:auto;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#a9c4ef}
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 Bybit Trading Bot</h1>
+  <div class="row">
+    <span><span id="statusdot" class="dot"></span><span id="statustext">หยุดอยู่</span></span>
+    <button class="btn green" id="startBtn" onclick="startBot()">▶ Start</button>
+    <button class="btn red" id="stopBtn" onclick="stopBot()">■ Stop</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('dash',this)">แดชบอร์ด</div>
+    <div class="tab" onclick="showTab('settings',this)">ตั้งค่า</div>
+  </div>
+
+  <!-- ================= DASHBOARD ================= -->
+  <div id="dash">
+    <div class="card">
+      <div class="grid" id="stats">
+        <div class="stat"><div class="k">กำไรสะสม (ทั้งหมด)</div><div class="v" id="s_cum">—</div></div>
+        <div class="stat"><div class="k">PnL เซสชันนี้</div><div class="v" id="s_sess">—</div></div>
+        <div class="stat"><div class="k">กำไรที่ยังไม่ปิด (unrealized)</div><div class="v" id="s_upnl">—</div></div>
+        <div class="stat"><div class="k">ไม้วันนี้</div><div class="v" id="s_trades">—</div></div>
+        <div class="stat"><div class="k">Win rate วันนี้</div><div class="v" id="s_wr">—</div></div>
+        <div class="stat"><div class="k">สุทธิวันนี้</div><div class="v" id="s_net">—</div></div>
+        <div class="stat"><div class="k">โพซิชันเปิดอยู่</div><div class="v" id="s_open">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>ไม้ที่ถืออยู่ตอนนี้ <span id="posCount" style="color:var(--muted);font-weight:400"></span></h3>
+      <div class="tblwrap" style="max-height:280px">
+        <table>
+          <thead><tr>
+            <th>คู่</th><th>ฝั่ง</th><th>ราคาเข้า</th><th>ราคาปัจจุบัน</th>
+            <th>ขนาด (USDT)</th><th>TP</th><th>SL</th><th>uPnL</th><th>ถือมาแล้ว</th><th>จัดการ</th>
+          </tr></thead>
+          <tbody id="posRows"><tr><td colspan="10" style="text-align:center;color:var(--muted)">ยังไม่มีไม้ที่ถืออยู่</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>กราฟกำไรสะสม</h3>
+      <canvas id="equity" height="90"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h3 style="margin:0">log เทรดเป็นไม้ ๆ</h3>
+        <a class="btn" href="/export.csv">⬇ Export CSV</a>
+      </div>
+      <div class="tblwrap" style="margin-top:12px">
+        <table>
+          <thead><tr>
+            <th>ปิดเมื่อ</th><th>คู่</th><th>ฝั่ง</th><th>เข้า</th><th>ออก</th>
+            <th>เหตุผล</th><th>PnL%</th><th>PnL USDT</th><th>สะสม</th>
+          </tr></thead>
+          <tbody id="tradeRows"><tr><td colspan="9" style="text-align:center;color:var(--muted)">ยังไม่มีข้อมูล</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Log ระบบ (สด)</h3>
+      <div id="logbox"></div>
+    </div>
+  </div>
+
+  <!-- ================= SETTINGS ================= -->
+  <div id="settings" style="display:none">
+    <div class="warn">⚠️ API key จะถูกเก็บไว้ในไฟล์ <b>.env</b> บนเครื่องคุณเท่านั้น —
+      แนะนำให้เปิดสิทธิ์ "Trade" เท่านั้น อย่าเปิดสิทธิ์ถอนเงิน (Withdraw)</div>
+    <form method="post" action="/save">
+      <div class="card">
+        <h3>Bybit</h3>
+        <div class="hint" style="margin-bottom:12px">ใส่ได้ทั้ง 2 ชุด — บอทจะเลือกใช้ตามสวิตช์ "ใช้ Testnet":
+          เปิด = ใช้ key ชุด Testnet, ปิด = ใช้ key ชุด Mainnet/จริง (key คนละชุดกัน ใช้ข้ามสนามไม่ได้)</div>
+        <div class="formgrid">{{ render_group(groups['bybit']) }}</div>
+        <div class="row"><button type="button" class="btn" onclick="testBybit()">ทดสอบเชื่อมต่อ Bybit</button></div>
+      </div>
+      <div class="card">
+        <h3>กลยุทธ์ / ความเสี่ยง</h3>
+        <div class="formgrid">{{ render_group(groups['strategy']) }}</div>
+      </div>
+      <div class="card">
+        <h3>Telegram แจ้งเตือน</h3>
+        <div class="formgrid">{{ render_group(groups['telegram']) }}</div>
+        <div class="hint">วิธีหา: ทัก @BotFather สร้างบอทได้ token → ทัก @userinfobot เพื่อดู Chat ID</div>
+        <div class="row" style="margin-top:10px"><button type="button" class="btn" onclick="testTelegram()">ส่งข้อความทดสอบ</button></div>
+      </div>
+      <button class="btn primary" type="submit">💾 บันทึกการตั้งค่า</button>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function showTab(id, el){
+  document.getElementById('dash').style.display = id==='dash'?'block':'none';
+  document.getElementById('settings').style.display = id==='settings'?'block':'none';
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+}
+function toast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block';
+  setTimeout(()=>t.style.display='none', 4000);
+}
+function col(v){ return v>0?'green':(v<0?'red':''); }
+function fmt(v){ return (v>=0?'+':'') + Number(v).toFixed(2); }
+
+async function startBot(){ const r=await(await fetch('/api/start',{method:'POST'})).json(); toast(r.running?'เริ่มบอทแล้ว':'บอททำงานอยู่แล้ว'); }
+async function stopBot(){ await fetch('/api/stop',{method:'POST'}); toast('สั่งหยุดบอทแล้ว'); }
+async function testBybit(){ toast('กำลังทดสอบ...'); const r=await(await fetch('/api/test-bybit',{method:'POST'})).json(); toast((r.ok?'✅ ':'❌ ')+r.msg); }
+async function testTelegram(){ toast('กำลังส่ง...'); const r=await(await fetch('/api/test-telegram',{method:'POST'})).json(); toast((r.ok?'✅ ':'❌ ')+r.msg); }
+async function closePos(sym){
+  if(!confirm('ปิดไม้ '+(sym||'').split(':')[0]+' ตอนนี้เลยไหม?')) return;
+  toast('กำลังปิด '+(sym||'').split(':')[0]+'...');
+  const r=await(await fetch('/api/close-position',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym})})).json();
+  toast((r.ok?'✅ ':'❌ ')+(r.msg||'')); refresh();
+}
+
+let chart;
+function initChart(){
+  const ctx=document.getElementById('equity');
+  chart=new Chart(ctx,{type:'line',
+    data:{labels:[],datasets:[{data:[],borderColor:'#4f8cff',backgroundColor:'rgba(79,140,255,.12)',
+          fill:true,tension:.25,pointRadius:0,borderWidth:2}]},
+    options:{plugins:{legend:{display:false}},
+      scales:{x:{ticks:{color:'#8a94ad',maxTicksLimit:8},grid:{color:'#1e2740'}},
+              y:{ticks:{color:'#8a94ad'},grid:{color:'#1e2740'}}}}});
+}
+
+async function refresh(){
+  try{
+    const st=await(await fetch('/api/status')).json();
+    const on=st.running;
+    document.getElementById('statusdot').className='dot'+(on?' on':'');
+    document.getElementById('statustext').textContent=on?'กำลังทำงาน':'หยุดอยู่';
+    document.getElementById('startBtn').disabled=on;
+    document.getElementById('stopBtn').disabled=!on;
+    const sess=document.getElementById('s_sess'); sess.textContent=fmt(st.session_pnl); sess.className='v '+col(st.session_pnl);
+    const up=document.getElementById('s_upnl'); up.textContent=fmt(st.unrealized||0); up.className='v '+col(st.unrealized||0);
+    document.getElementById('s_open').textContent=st.open_positions.length;
+    document.getElementById('logbox').innerHTML=(st.log||[]).join('<br>');
+
+    // ตารางไม้ที่ถืออยู่
+    const now=Date.now();
+    const held=ts=>{ if(!ts)return '—'; const m=Math.max(0,(now-new Date(ts).getTime())/60000);
+      return m<60?Math.round(m)+' นาที':(m/60).toFixed(1)+' ชม.'; };
+    const pnum=x=>(x==null?'—':Number(x).toFixed(4));
+    const prows=(st.open_positions||[]).map(p=>{
+      const margin=(p.notional&&st.leverage)?null:null;
+      const upct=(p.upnl!=null&&p.notional)?(p.upnl/p.notional*100):0;
+      const nx=(p.entries&&p.entries>1)?` <span style="color:var(--amber)">×${p.entries}</span>`:'';
+      return `<tr>
+        <td>${(p.symbol||'').split(':')[0]}${nx}</td>
+        <td class="${p.side==='buy'?'green':'red'}">${p.side==='buy'?'LONG':'SHORT'}</td>
+        <td>${pnum(p.entry)}</td><td>${pnum(p.mark)}</td>
+        <td>${p.notional?Number(p.notional).toFixed(1):'—'}</td>
+        <td>${pnum(p.tp)}</td><td>${p.sl?pnum(p.sl):'—'}</td>
+        <td class="${col(p.upnl)}">${fmt(p.upnl||0)} (${(upct>=0?'+':'')+upct.toFixed(2)}%)</td>
+        <td>${held(p.ts_open)}</td>
+        <td><button class="btn" style="padding:5px 12px" onclick="closePos('${p.symbol}')">ปิด</button></td></tr>`;}).join('');
+    document.getElementById('posRows').innerHTML=prows||'<tr><td colspan="10" style="text-align:center;color:var(--muted)">ยังไม่มีไม้ที่ถืออยู่</td></tr>';
+    document.getElementById('posCount').textContent=(st.open_positions||[]).length?('('+st.open_positions.length+' ไม้)'):'';
+    const lb=document.getElementById('logbox'); lb.scrollTop=lb.scrollHeight;
+
+    const sm=await(await fetch('/api/summary')).json();
+    document.getElementById('s_trades').textContent=sm.trades+' (▲'+sm.wins+' ▼'+sm.losses+')';
+    document.getElementById('s_wr').textContent=sm.winrate.toFixed(1)+'%';
+    const net=document.getElementById('s_net'); net.textContent=fmt(sm.net); net.className='v '+col(sm.net);
+    const cum=document.getElementById('s_cum'); cum.textContent=fmt(sm.cum_pnl); cum.className='v '+col(sm.cum_pnl);
+
+    const tr=await(await fetch('/api/trades')).json();
+    const rows=tr.map(t=>`<tr>
+      <td>${(t.ts_close||'').replace('T',' ').slice(5,19)}</td>
+      <td>${t.symbol.split(':')[0]}</td>
+      <td class="${t.side==='buy'?'green':'red'}">${t.side==='buy'?'LONG':'SHORT'}</td>
+      <td>${Number(t.entry).toFixed(4)}</td><td>${Number(t.exit).toFixed(4)}</td>
+      <td>${t.reason}</td>
+      <td class="${col(t.pnl_pct)}">${fmt(t.pnl_pct)}%</td>
+      <td class="${col(t.pnl_usdt)}">${fmt(t.pnl_usdt)}</td>
+      <td>${fmt(t.cum_pnl)}</td></tr>`).join('');
+    document.getElementById('tradeRows').innerHTML=rows||'<tr><td colspan="9" style="text-align:center;color:var(--muted)">ยังไม่มีข้อมูล</td></tr>';
+
+    const eq=await(await fetch('/api/equity')).json();
+    if(chart){ chart.data.labels=eq.map(e=>e.i); chart.data.datasets[0].data=eq.map(e=>e.cum); chart.update('none'); }
+  }catch(e){}
+}
+initChart(); refresh(); setInterval(refresh,3000);
+</script>
+</body>
+</html>

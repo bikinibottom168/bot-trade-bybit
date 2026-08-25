@@ -1,0 +1,9 @@
+# ห้าม commit ความลับและข้อมูลรันจริง
+.env
+trades.db
+trades_export.csv
+bot.lock
+__pycache__/
+*.pyc
+.venv/
+venv/
